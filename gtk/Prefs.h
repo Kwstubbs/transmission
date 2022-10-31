@@ -7,7 +7,6 @@
 #include <cstdint> // int64_t
 #include <string>
 #include <string_view>
-#include <vector>
 
 #include <libtransmission/transmission.h> /* tr_variant, tr_session */
 #include <libtransmission/quark.h>
@@ -22,8 +21,6 @@ void gtr_pref_double_set(tr_quark const key, double value);
 
 bool gtr_pref_flag_get(tr_quark const key);
 void gtr_pref_flag_set(tr_quark const key, bool value);
-
-std::vector<std::string> gtr_pref_strv_get(tr_quark const key);
 
 std::string gtr_pref_string_get(tr_quark const key);
 void gtr_pref_string_set(tr_quark const key, std::string_view value);

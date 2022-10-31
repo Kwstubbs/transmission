@@ -65,6 +65,7 @@ public:
         OptionsDialog& dialog,
         Glib::RefPtr<Gtk::Builder> const& builder,
         Glib::RefPtr<Session> const& core,
+        Glib::RefPtr<Gio::Settings> const& settings,
         std::unique_ptr<tr_ctor, void (*)(tr_ctor*)> ctor);
 
     TR_DISABLE_COPY_MOVE(Impl)
@@ -81,6 +82,7 @@ private:
 private:
     OptionsDialog& dialog_;
     Glib::RefPtr<Session> const core_;
+    Glib::RefPtr<Gio::Settings> const settings_;
     std::unique_ptr<tr_ctor, void (*)(tr_ctor*)> ctor_;
 
     std::string filename_;
@@ -121,7 +123,7 @@ void OptionsDialog::Impl::addResponseCB(int response)
 
             if (trash_check_->get_active())
             {
-                gtr_file_trash_or_remove(filename_, nullptr);
+                gtr_file_trash_or_remove(filename_, settings_->get_boolean("trash-can-enabled"), nullptr);
             }
 
             gtr_save_recent_dir("download", core_, downloadDir_);
@@ -237,9 +239,10 @@ OptionsDialog::OptionsDialog(
     Glib::RefPtr<Gtk::Builder> const& builder,
     Gtk::Window& parent,
     Glib::RefPtr<Session> const& core,
+    Glib::RefPtr<Gio::Settings> const& settings,
     std::unique_ptr<tr_ctor, void (*)(tr_ctor*)> ctor)
     : Gtk::Dialog(cast_item)
-    , impl_(std::make_unique<Impl>(*this, builder, core, std::move(ctor)))
+    , impl_(std::make_unique<Impl>(*this, builder, core, settings, std::move(ctor)))
 {
     set_transient_for(parent);
 }
@@ -249,20 +252,23 @@ OptionsDialog::~OptionsDialog() = default;
 std::unique_ptr<OptionsDialog> OptionsDialog::create(
     Gtk::Window& parent,
     Glib::RefPtr<Session> const& core,
+    Glib::RefPtr<Gio::Settings> const& settings,
     std::unique_ptr<tr_ctor, void (*)(tr_ctor*)> ctor)
 {
     auto const builder = Gtk::Builder::create_from_resource(gtr_get_full_resource_path("OptionsDialog.ui"));
     return std::unique_ptr<OptionsDialog>(
-        gtr_get_widget_derived<OptionsDialog>(builder, "OptionsDialog", parent, core, std::move(ctor)));
+        gtr_get_widget_derived<OptionsDialog>(builder, "OptionsDialog", parent, core, settings, std::move(ctor)));
 }
 
 OptionsDialog::Impl::Impl(
     OptionsDialog& dialog,
     Glib::RefPtr<Gtk::Builder> const& builder,
     Glib::RefPtr<Session> const& core,
+    Glib::RefPtr<Gio::Settings> const& settings,
     std::unique_ptr<tr_ctor, void (*)(tr_ctor*)> ctor)
     : dialog_(dialog)
     , core_(core)
+    , settings_(settings)
     , ctor_(std::move(ctor))
     , filename_(get_source_file(*ctor_))
     , downloadDir_(get_download_dir(*ctor_))
@@ -322,12 +328,17 @@ OptionsDialog::Impl::Impl(
 *****
 ****/
 
-void TorrentFileChooserDialog::onOpenDialogResponse(int response, Glib::RefPtr<Session> const& core)
+void TorrentFileChooserDialog::onOpenDialogResponse(
+    int response,
+    Glib::RefPtr<Session> const& core,
+    Glib::RefPtr<Gio::Settings> const& settings)
 {
     if (response == TR_GTK_RESPONSE_TYPE(ACCEPT))
     {
-        /* remember this folder the next time we use this dialog */
-        gtr_pref_string_set(TR_KEY_open_dialog_dir, IF_GTKMM4(get_current_folder, get_current_folder_file)()->get_path());
+        /* remember this folder for the next time we use this dialog */
+        settings->set_string(
+            "open-dialog-dir",
+            Glib::locale_to_utf8(IF_GTKMM4(get_current_folder, get_current_folder_file)()->get_path()));
 
         bool const do_start = gtr_pref_flag_get(TR_KEY_start_added_torrents);
         bool const do_prompt = get_choice(ShowOptionsDialogChoice) == "true";
@@ -352,12 +363,16 @@ void TorrentFileChooserDialog::onOpenDialogResponse(int response, Glib::RefPtr<S
 
 std::unique_ptr<TorrentFileChooserDialog> TorrentFileChooserDialog::create(
     Gtk::Window& parent,
-    Glib::RefPtr<Session> const& core)
+    Glib::RefPtr<Session> const& core,
+    Glib::RefPtr<Gio::Settings> const& settings)
 {
-    return std::unique_ptr<TorrentFileChooserDialog>(new TorrentFileChooserDialog(parent, core));
+    return std::unique_ptr<TorrentFileChooserDialog>(new TorrentFileChooserDialog(parent, core, settings));
 }
 
-TorrentFileChooserDialog::TorrentFileChooserDialog(Gtk::Window& parent, Glib::RefPtr<Session> const& core)
+TorrentFileChooserDialog::TorrentFileChooserDialog(
+    Gtk::Window& parent,
+    Glib::RefPtr<Session> const& core,
+    Glib::RefPtr<Gio::Settings> const& settings)
     : Gtk::FileChooserDialog(parent, _("Open a Torrent"), TR_GTK_FILE_CHOOSER_ACTION(OPEN))
 {
     set_modal(true);
@@ -367,15 +382,17 @@ TorrentFileChooserDialog::TorrentFileChooserDialog(Gtk::Window& parent, Glib::Re
 
     set_select_multiple(true);
     addTorrentFilters(this);
-    signal_response().connect([this, core](int response) { onOpenDialogResponse(response, core); });
+    signal_response().connect([this, core, settings](int response) { onOpenDialogResponse(response, core, settings); });
 
-    if (auto const folder = gtr_pref_string_get(TR_KEY_open_dialog_dir); !folder.empty())
+    auto last_dir = Glib::locale_from_utf8(settings->get_string("open-dialog-dir"));
+    if (last_dir.empty())
     {
-        IF_GTKMM4(set_current_folder, set_current_folder_file)(Gio::File::create_for_path(folder));
+        last_dir = Glib::get_home_dir();
     }
+    IF_GTKMM4(set_current_folder, set_current_folder_file)(Gio::File::create_for_path(last_dir));
 
     add_choice(ShowOptionsDialogChoice, _("Show options dialog"));
-    set_choice(ShowOptionsDialogChoice, gtr_pref_flag_get(TR_KEY_show_options_window) ? "true" : "false");
+    set_choice(ShowOptionsDialogChoice, settings->get_boolean("show-options-window") ? "true" : "false");
 }
 
 /***

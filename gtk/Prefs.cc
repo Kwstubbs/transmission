@@ -2,10 +2,6 @@
 // It may be used under the MIT (SPDX: MIT) license.
 // License text can be found in the licenses/ folder.
 
-#include <errno.h>
-#include <string>
-#include <string_view>
-
 #include <glibmm.h>
 #include <glibmm/i18n.h>
 
@@ -15,12 +11,16 @@
 #include <libtransmission/variant.h>
 
 #include "Prefs.h"
-#include "PrefsDialog.h"
 #include "Utils.h"
 
 using namespace std::literals;
 
+namespace
+{
+
 std::string gl_confdir;
+
+} // namespace
 
 void gtr_pref_init(std::string_view config_dir)
 {
@@ -33,11 +33,10 @@ void gtr_pref_init(std::string_view config_dir)
 ****
 ***/
 
-/**
- * This is where we initialize the preferences file with the default values.
- * If you add a new preferences key, you /must/ add a default value here.
- */
-static void tr_prefs_init_defaults(tr_variant* d)
+namespace
+{
+
+std::string get_default_download_dir()
 {
     auto dir = Glib::get_user_special_dir(TR_GLIB_USER_DIRECTORY(DOWNLOAD));
 
@@ -51,73 +50,26 @@ static void tr_prefs_init_defaults(tr_variant* d)
         dir = tr_getDefaultDownloadDir();
     }
 
-    tr_variantDictReserve(d, 31);
-    tr_variantDictAddStr(d, TR_KEY_watch_dir, dir);
-    tr_variantDictAddBool(d, TR_KEY_watch_dir_enabled, false);
-    tr_variantDictAddBool(d, TR_KEY_user_has_given_informed_consent, false);
-    tr_variantDictAddBool(d, TR_KEY_inhibit_desktop_hibernation, false);
-    tr_variantDictAddBool(d, TR_KEY_blocklist_updates_enabled, true);
-    tr_variantDictAddStr(d, TR_KEY_open_dialog_dir, Glib::get_home_dir());
-    tr_variantDictAddBool(d, TR_KEY_show_toolbar, true);
-    tr_variantDictAddBool(d, TR_KEY_show_filterbar, true);
-    tr_variantDictAddBool(d, TR_KEY_show_statusbar, true);
-    tr_variantDictAddBool(d, TR_KEY_trash_can_enabled, true);
-    tr_variantDictAddBool(d, TR_KEY_show_notification_area_icon, false);
-    tr_variantDictAddBool(d, TR_KEY_show_tracker_scrapes, false);
-    tr_variantDictAddBool(d, TR_KEY_show_extra_peer_details, false);
-    tr_variantDictAddBool(d, TR_KEY_show_backup_trackers, false);
-    tr_variantDictAddStr(d, TR_KEY_statusbar_stats, "total-ratio"sv);
-    tr_variantDictAddBool(d, TR_KEY_torrent_added_notification_enabled, true);
-    tr_variantDictAddBool(d, TR_KEY_torrent_complete_notification_enabled, true);
-    tr_variantDictAddBool(d, TR_KEY_torrent_complete_sound_enabled, true);
-    tr_variantDictAddBool(d, TR_KEY_show_options_window, true);
-    tr_variantDictAddBool(d, TR_KEY_main_window_is_maximized, false);
-    tr_variantDictAddInt(d, TR_KEY_main_window_height, 500);
-    tr_variantDictAddInt(d, TR_KEY_main_window_width, 300);
-    tr_variantDictAddInt(d, TR_KEY_main_window_x, 50);
-    tr_variantDictAddInt(d, TR_KEY_main_window_y, 50);
-    tr_variantDictAddInt(d, TR_KEY_details_window_height, 500);
-    tr_variantDictAddInt(d, TR_KEY_details_window_width, 700);
-    tr_variantDictAddStr(d, TR_KEY_download_dir, dir);
-    tr_variantDictAddStr(d, TR_KEY_sort_mode, "sort-by-name"sv);
-    tr_variantDictAddBool(d, TR_KEY_sort_reversed, false);
-    tr_variantDictAddBool(d, TR_KEY_compact_view, false);
+    return dir;
 }
 
-static void ensure_sound_cmd_is_a_list(tr_variant* dict)
-{
-    tr_quark key = TR_KEY_torrent_complete_sound_command;
-    tr_variant* list = nullptr;
-    if (tr_variantDictFindList(dict, key, &list))
-    {
-        return;
-    }
-
-    tr_variantDictRemove(dict, key);
-    list = tr_variantDictAddList(dict, key, 5);
-    tr_variantListAddStr(list, "canberra-gtk-play"sv);
-    tr_variantListAddStr(list, "-i"sv);
-    tr_variantListAddStr(list, "complete-download"sv);
-    tr_variantListAddStr(list, "-d"sv);
-    tr_variantListAddStr(list, "transmission torrent downloaded"sv);
-}
-
-static tr_variant* getPrefs()
+tr_variant* getPrefs()
 {
     static tr_variant settings;
     static bool loaded = false;
 
     if (!loaded)
     {
-        tr_variantInitDict(&settings, 0);
-        tr_prefs_init_defaults(&settings);
+        tr_variantInitDict(&settings, 1);
+        tr_variantDictAddStr(&settings, TR_KEY_download_dir, get_default_download_dir());
         tr_sessionLoadSettings(&settings, gl_confdir.c_str(), nullptr);
-        ensure_sound_cmd_is_a_list(&settings);
         loaded = true;
     }
 
     return &settings;
 }
+
+} // namespace
 
 /***
 ****
@@ -171,28 +123,6 @@ void gtr_pref_flag_set(tr_quark const key, bool value)
 /***
 ****
 ***/
-
-std::vector<std::string> gtr_pref_strv_get(tr_quark const key)
-{
-    std::vector<std::string> ret;
-
-    if (tr_variant* list = nullptr; tr_variantDictFindList(getPrefs(), key, &list))
-    {
-        size_t const n = tr_variantListSize(list);
-        ret.reserve(n);
-
-        for (size_t i = 0; i < n; ++i)
-        {
-            auto sv = std::string_view{};
-            if (tr_variantGetStrView(tr_variantListChild(list, i), &sv))
-            {
-                ret.emplace_back(sv);
-            }
-        }
-    }
-
-    return ret;
-}
 
 std::string gtr_pref_string_get(tr_quark const key)
 {

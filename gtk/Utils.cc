@@ -376,7 +376,7 @@ void setup_tree_view_button_event_handling(
 #endif
 }
 
-bool gtr_file_trash_or_remove(std::string const& filename, tr_error** error)
+bool gtr_file_trash_or_remove(std::string const& filename, bool use_trash_can, tr_error** error)
 {
     bool trashed = false;
     bool result = true;
@@ -385,7 +385,7 @@ bool gtr_file_trash_or_remove(std::string const& filename, tr_error** error)
 
     auto const file = Gio::File::create_for_path(filename);
 
-    if (gtr_pref_flag_get(TR_KEY_trash_can_enabled))
+    if (use_trash_can)
     {
         try
         {
@@ -810,4 +810,41 @@ void gtr_save_recent_dir(std::string const& pref, Glib::RefPtr<Session> const& c
     }
 
     gtr_pref_save(core->get_session());
+}
+
+void gtr_bind_window_state_settings(Gtk::Window& window, Glib::RefPtr<Gio::Settings> const& settings, std::string_view name)
+{
+    auto const width_key = fmt::format("{}-width", name);
+    auto const height_key = fmt::format("{}-height", name);
+    auto const maximized_key = fmt::format("{}-maximized", name);
+
+    auto on_main_window_size_allocated = [&window, settings, width_key, height_key]()
+    {
+        if (window.is_maximized())
+        {
+            return;
+        }
+
+        int w;
+        int h;
+        window.IF_GTKMM4(get_default_size, get_size)(w, h);
+        settings->set_int(width_key, w);
+        settings->set_int(height_key, h);
+    };
+
+    window.set_default_size(settings->get_int(width_key), settings->get_int(height_key));
+
+#if GTKMM_CHECK_VERSION(4, 0, 0)
+    settings->bind(maximized_key, window.property_maximized());
+    window.property_default_width().signal_changed().connect(on_main_window_size_allocated);
+    window.property_default_height().signal_changed().connect(on_main_window_size_allocated);
+#else
+    if (settings->get_boolean(maximized_key))
+    {
+        window.maximize();
+    }
+
+    settings->bind(maximized_key, window.property_is_maximized(), TR_GIO_SETTINGS_BIND_FLAGS(SET));
+    window.signal_size_allocate().connect(sigc::hide<0>(on_main_window_size_allocated));
+#endif
 }

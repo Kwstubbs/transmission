@@ -3,6 +3,7 @@
 // or any future license endorsed by Mnemosyne LLC.
 // License text can be found in the licenses/ folder.
 
+#include <algorithm>
 #include <map>
 #include <utility>
 #include <vector>
@@ -193,11 +194,16 @@ void notify_callback(Glib::RefPtr<Gio::AsyncResult>& res, TrNotification const& 
 
 } // namespace
 
-void gtr_notify_torrent_completed(Glib::RefPtr<Session> const& core, tr_torrent_id_t tor_id)
+void gtr_notify_torrent_completed(
+    Glib::RefPtr<Session> const& core,
+    Glib::RefPtr<Gio::Settings> const& settings,
+    tr_torrent_id_t tor_id)
 {
-    if (gtr_pref_flag_get(TR_KEY_torrent_complete_sound_enabled))
+    if (settings->get_boolean("torrent-complete-sound-enabled"))
     {
-        auto const argv = gtr_pref_strv_get(TR_KEY_torrent_complete_sound_command);
+        auto const argv_utf8 = settings->get_string_array("torrent-complete-sound-command");
+        auto argv = std::vector<std::string>();
+        std::transform(argv_utf8.begin(), argv_utf8.end(), std::back_inserter(argv), &Glib::locale_from_utf8);
 
         try
         {
@@ -208,7 +214,7 @@ void gtr_notify_torrent_completed(Glib::RefPtr<Session> const& core, tr_torrent_
         }
     }
 
-    if (!gtr_pref_flag_get(TR_KEY_torrent_complete_notification_enabled))
+    if (settings->get_boolean("torrent-complete-notification-enabled"))
     {
         return;
     }
@@ -251,11 +257,14 @@ void gtr_notify_torrent_completed(Glib::RefPtr<Session> const& core, tr_torrent_
             -1));
 }
 
-void gtr_notify_torrent_added(Glib::RefPtr<Session> const& core, tr_torrent_id_t tor_id)
+void gtr_notify_torrent_added(
+    Glib::RefPtr<Session> const& core,
+    Glib::RefPtr<Gio::Settings> const& settings,
+    tr_torrent_id_t tor_id)
 {
     g_return_if_fail(proxy != nullptr);
 
-    if (!gtr_pref_flag_get(TR_KEY_torrent_added_notification_enabled))
+    if (!settings->get_boolean("torrent-added-notification-enabled"))
     {
         return;
     }
